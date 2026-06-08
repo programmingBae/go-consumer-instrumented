@@ -32,20 +32,14 @@ func main() {
 	ctx := context.Background()
 
 	serviceName := getEnv("OTEL_SERVICE_NAME")
-	brokerURL   := getEnv("SOLACE_BROKER_URL")
-	vpnName     := getEnv("SOLACE_VPN")
-	username    := getEnv("SOLACE_USERNAME")
-	password    := getEnv("SOLACE_PASSWORD")
-	queueName   := getEnv("SOLACE_QUEUE")
+	brokerURL := getEnv("SOLACE_BROKER_URL")
+	vpnName := getEnv("SOLACE_VPN")
+	username := getEnv("SOLACE_USERNAME")
+	password := getEnv("SOLACE_PASSWORD")
+	queueName := getEnv("SOLACE_QUEUE")
 
-	// ══════════════════════════════════════════════════════════════════════
-	// [TRACING STEP 1] Setup OpenTelemetry TracerProvider
-	// ══════════════════════════════════════════════════════════════════════
-	// Kirim span ke OTEL Collector via gRPC (port 4317).
-	// Endpoint dibaca otomatis dari env: OTEL_EXPORTER_OTLP_ENDPOINT
-	// Collector yang forward ke Grafana Tempo.
 	exporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithInsecure(), // hapus kalau collector pakai TLS
+		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
 		fmt.Printf("Failed to create exporter: %v\n", err)
@@ -69,21 +63,14 @@ func main() {
 		}
 	}()
 
-	// ══════════════════════════════════════════════════════════════════════
-	// [TRACING STEP 2] Register global TracerProvider & TextMapPropagator
-	// ══════════════════════════════════════════════════════════════════════
-	// W3C TraceContext → format "traceparent" yang dipakai Solace broker.
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(otel_propagation.TraceContext{})
 
-	fmt.Printf("✅ OpenTelemetry initialized (service: %s)\n", serviceName)
+	fmt.Printf("OpenTelemetry initialized (service: %s)\n", serviceName)
 
-	// ══════════════════════════════════════════════════════════════════════
-	// Setup Solace Messaging
-	// ══════════════════════════════════════════════════════════════════════
 	brokerConfig := config.ServicePropertyMap{
 		config.TransportLayerPropertyHost:                brokerURL,
-		config.ServicePropertyVPNName:                   vpnName,
+		config.ServicePropertyVPNName:                    vpnName,
 		config.AuthenticationPropertySchemeBasicUserName: username,
 		config.AuthenticationPropertySchemeBasicPassword: password,
 	}
@@ -100,7 +87,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer messagingService.Disconnect()
-	fmt.Println("✅ Connected to Solace broker")
+	fmt.Println("Connected to Solace broker")
 
 	queue := resource.QueueDurableNonExclusive(queueName)
 	receiver, err := messagingService.CreatePersistentMessageReceiverBuilder().
@@ -116,28 +103,14 @@ func main() {
 	}
 	defer receiver.Terminate(0)
 
-	// ══════════════════════════════════════════════════════════════════════
-	// [TRACING STEP 3–7] Message Handler dengan Distributed Tracing
-	// ══════════════════════════════════════════════════════════════════════
 	var messageHandler solace.MessageHandler = func(msg message.InboundMessage) {
-
-		// ── [TRACING STEP 3] Buat InboundMessageCarrier ───────────────────
-		// Adapter antara Solace InboundMessage dan OTel TextMapCarrier.
-		// Carrier ini tahu cara membaca "traceparent" dari Solace message
-		// user properties (format W3C TraceContext).
 		inboundCarrier := solaceotel.NewInboundMessageCarrier(msg)
 
-		// ── [TRACING STEP 4] Extract parent SpanContext dari pesan ─────────
-		// Extract() membaca "traceparent" dari carrier → dapatkan SpanContext
-		// upstream (broker). Span yang dibuat dari context ini akan terhubung
-		// ke trace yang sama (TraceID identik).
-		// Jika pesan tidak ada trace context → span menjadi root span baru.
 		parentCtx := otel.GetTextMapPropagator().Extract(
 			context.Background(),
 			inboundCarrier,
 		)
 
-		// ── [TRACING STEP 5] Definisikan span attributes ──────────────────
 		attrs := []attribute.KeyValue{
 			semconv.MessagingSystemKey.String("PubSub+"),
 			semconv.MessagingDestinationNameKey.String(msg.GetDestinationName()),
@@ -149,7 +122,6 @@ func main() {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		}
 
-		// ── [TRACING STEP 6] Mulai receive span sebagai child ─────────────
 		tracer := otel.GetTracerProvider().Tracer(serviceName)
 		_, span := tracer.Start(
 			parentCtx,
@@ -157,12 +129,8 @@ func main() {
 			spanOpts...,
 		)
 
-		// ── [TRACING STEP 7] Tutup span dengan defer ──────────────────────
 		defer span.End()
 
-		// ══════════════════════════════════════════════════════════════════
-		// Business logic
-		// ══════════════════════════════════════════════════════════════════
 		var body string
 		if payload, ok := msg.GetPayloadAsString(); ok {
 			body = payload
@@ -170,7 +138,7 @@ func main() {
 			body = string(payload)
 		}
 
-		fmt.Printf("📩 [%s] %s\n", msg.GetDestinationName(), body)
+		fmt.Printf("[%s] %s\n", msg.GetDestinationName(), body)
 		fmt.Printf("   TraceID : %s\n", span.SpanContext().TraceID())
 		fmt.Printf("   SpanID  : %s\n", span.SpanContext().SpanID())
 		fmt.Printf("   IsRemote: %v\n", span.SpanContext().IsRemote())
@@ -181,11 +149,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("👂 Listening on queue [%s] with distributed tracing...\n", queueName)
+	fmt.Printf("Listening on queue [%s] with distributed tracing...\n", queueName)
 	fmt.Println("Press Ctrl+C to exit")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
-	fmt.Println("\n🛑 Shutting down consumer...")
+	fmt.Println("Shutting down consumer...")
 }

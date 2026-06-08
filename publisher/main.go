@@ -1,9 +1,5 @@
 package main
 
-// publisher/main.go
-// Simple publisher WITHOUT distributed tracing instrumentation.
-// Tujuan: kirim pesan ke Solace broker di localhost.
-
 import (
 	"fmt"
 	"os"
@@ -24,19 +20,13 @@ const (
 )
 
 func main() {
-	// ──────────────────────────────────────────────
-	// STEP 1: Konfigurasi koneksi ke Solace broker
-	// ──────────────────────────────────────────────
 	brokerConfig := config.ServicePropertyMap{
 		config.TransportLayerPropertyHost:                brokerURL,
-		config.ServicePropertyVPNName:                   vpnName,
+		config.ServicePropertyVPNName:                    vpnName,
 		config.AuthenticationPropertySchemeBasicUserName: username,
 		config.AuthenticationPropertySchemeBasicPassword: password,
 	}
 
-	// ──────────────────────────────────────────────
-	// STEP 2: Build dan connect messaging service
-	// ──────────────────────────────────────────────
 	messagingService, err := messaging.NewMessagingServiceBuilder().
 		FromConfigurationProvider(brokerConfig).
 		Build()
@@ -50,11 +40,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer messagingService.Disconnect()
-	fmt.Println("✅ Connected to Solace broker")
+	fmt.Println("Connected to Solace broker")
 
-	// ──────────────────────────────────────────────
-	// STEP 3: Buat persistent message publisher
-	// ──────────────────────────────────────────────
 	publisher, err := messagingService.CreatePersistentMessagePublisherBuilder().Build()
 	if err != nil {
 		fmt.Printf("Failed to build publisher: %v\n", err)
@@ -67,9 +54,6 @@ func main() {
 	}
 	defer publisher.Terminate(5 * time.Second)
 
-	// ──────────────────────────────────────────────
-	// STEP 4: Build dan publish pesan
-	// ──────────────────────────────────────────────
 	msgBuilder := messagingService.MessageBuilder()
 
 	for i := 1; i <= numMessage; i++ {
@@ -89,13 +73,11 @@ func main() {
 			continue
 		}
 
-		fmt.Printf("📤 Published: %s\n", payload)
+		fmt.Printf("Published: %s\n", payload)
 
-		// Hindari publish terlalu cepat
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// Flush semua pesan sebelum disconnect
 	lastMsg, _ := msgBuilder.BuildWithStringPayload("LAST_MESSAGE")
 	_ = publisher.PublishAwaitAcknowledgement(
 		lastMsg,
@@ -104,5 +86,5 @@ func main() {
 		nil,
 	)
 
-	fmt.Println("✅ All messages published!")
+	fmt.Println("All messages published!")
 }
