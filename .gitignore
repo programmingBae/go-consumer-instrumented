@@ -1,0 +1,38 @@
+# ─── Secrets / kredensial (JANGAN di-commit) ────────────────────────────
+.env
+.env.local
+.env.*.local
+otel-collector-config.yaml          # berisi token Grafana Tempo + cred broker
+*-copy.yaml
+* copy.yaml
+
+# ─── OS / editor ─────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ─── Go ──────────────────────────────────────────────────────────────────
+# Binary hasil build
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+publisher/publisher
+consumer/consumer
+consumer_instrumented/consumer_instrumented
+
+# Test & coverage
+*.test
+*.out
+coverage.*
+
+# Dependency vendor (opsional, hapus kalau pakai vendoring)
+/vendor/
+
+# ─── Lain-lain ───────────────────────────────────────────────────────────
+mnt/
+*.log

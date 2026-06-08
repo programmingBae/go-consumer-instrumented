@@ -1,0 +1,65 @@
+# otel-collector-config.yaml
+#
+# Konfigurasi OpenTelemetry Collector untuk menerima span dari:
+#   1. Aplikasi Go consumer (via OTLP HTTP port 4318)
+#   2. Solace broker (via Solace receiver port 5674)
+# Kemudian forward ke Grafana Tempo (cloud).
+
+receivers:
+  # ── Receiver dari aplikasi Go (OTLP HTTP) ──────────────────────────────
+  # Aplikasi consumer yang sudah diinstrumentasi mengirim span ke sini
+  # via otlptracehttp exporter di port 4318.
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318   # consumer Go connect ke sini
+      grpc:
+        endpoint: 0.0.0.0:4317   # jika pakai gRPC exporter
+
+  # ── Receiver dari Solace broker (span dari broker itu sendiri) ──────────
+  # Broker Solace menghasilkan span untuk setiap message yang diproses
+  # di event mesh. Span ini dikirim via AMQP ke queue #telemetry-trace.
+  solace:
+    broker: [host.docker.internal:5674]  # ganti dengan IP broker jika bukan docker
+    auth:
+      sasl_plain:
+        username: trace
+        password: trace
+    queue: queue://#telemetry-trace
+    tls:
+      insecure: true
+
+exporters:
+  # ── Export ke Grafana Tempo Cloud ──────────────────────────────────────
+  otlp/tempo:
+    endpoint: "tempo-prod-23-prod-ap-southeast-2.grafana.net:443"
+    headers:
+      authorization: Basic MTU2NTM0OTpnbGNfZXlKdklqb2lNVGMwT0RRNE1TSXNJbTRpT2lKemRHRmpheTB4TmpFek1qVTVMV0ZzYkc5NUxXOTBaV3d0WTI5c2JHVmpkRzl5TFhOdmJHRmpaUzFrZENJc0ltc2lPaUk0VEcwNGRqUkVTemhqTUc0eE1URnBXVEZ6VjJVMlVuVWlMQ0p0SWpwN0luSWlPaUp3Y205a0xXRndMWE52ZFhSb1pXRnpkQzB5SW4xOQ==
+
+  # ── Debug: print span ke log collector (opsional) ──────────────────────
+  debug:
+    verbosity: detailed
+
+processors:
+  # Batch processor: kumpulkan span sebelum dikirim, lebih efisien
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+service:
+  telemetry:
+    logs:
+      level: "debug"
+
+  pipelines:
+    # Pipeline 1: span dari Solace broker → Tempo
+    traces/solace:
+      receivers: [solace]
+      processors: [batch]
+      exporters: [otlp/tempo]
+
+    # Pipeline 2: span dari aplikasi Go consumer → Tempo
+    traces/app:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, debug]
